@@ -1,0 +1,648 @@
+import { Suspense, useMemo, useRef, useEffect, useState } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import {
+  OrbitControls,
+  Html,
+  useTexture,
+  Environment,
+  Loader,
+  MeshReflectorMaterial,
+  Text,
+  PointerLockControls,
+} from "@react-three/drei";
+import * as THREE from "three";
+
+type ImageItem = {
+  url: string;
+  title?: string;
+  author?: string;
+};
+
+interface Props {
+  images?: ImageItem[];
+  roomSize?: { w: number; h: number; d: number }; // 幅・高さ・奥行
+}
+
+export default function PhotoGallery3D({
+  images = [
+    {
+      url: "/images/photo1.jpg",
+      title: "静かな街角",
+      author: "you",
+    },
+    {
+      url: "/images/photo2.jpg",
+      title: "影を歩く",
+      author: "you",
+    },
+    {
+      url: "/images/photo3.jpg",
+      title: "色のない世界",
+      author: "you",
+    },
+    {
+      url: "/images/photo4.jpg",
+      title: "遠ざかる",
+      author: "you",
+    },
+    { url: "/images/photo5.jpg", title: "沈む心", author: "you" },
+  ],
+  roomSize = { w: 24, h: 4, d: 16 },
+}: Props) {
+  // mode 切替は廃止。マウスドラッグ（OrbitControls）と WASD 移動を常時有効にする。
+
+  const orbitRef = useRef<any>(null);
+
+  return (
+    <div
+      className="relative w-full h-[80vh] bg-black"
+      style={{ width: "100%", height: "80vh", background: "black" }}
+    >
+      <Canvas
+        style={{ width: "100%", height: "100%" }}
+        shadows
+        gl={{ antialias: true }}
+        // カメラを部屋の内側に配置する（壁の外側に出てしまわないようにする）
+        camera={{ position: [0, 1.7, roomSize.d / 2 - 2], fov: 60 }}
+      >
+        <color attach="background" args={[0.05, 0.05, 0.06]} />
+        <Suspense
+          fallback={
+            <Html center style={{ width: "10rem", color: "#fff" }}>
+              テクスチャ読込中…
+            </Html>
+          }
+        >
+          <Environment preset="city" background={false} />
+          <GalleryLighting />
+          <Room {...roomSize} />
+          <Frames images={images} roomSize={roomSize} />
+          <Floor w={roomSize.w} d={roomSize.d} />
+        </Suspense>
+
+        {/* OrbitControls を削除して、マウスドラッグで直接カメラ回転を制御 */}
+        <PointerLookWalk roomSize={roomSize} />
+      </Canvas>
+      {/* モード切替ボタンを削除。ドラッグで視点、WASDで移動が常時可能。 */}
+
+      <Loader />
+    </div>
+  );
+}
+
+function GalleryLighting() {
+  return (
+    <>
+      <ambientLight intensity={0.35} />
+      {/* 天井ライトのラインを少しだけ */}
+      <rectAreaLight
+        intensity={6}
+        width={6}
+        height={0.1}
+        position={[0, 3.8, 0]}
+        rotation={[Math.PI / 2, 0, 0]}
+      />
+      <directionalLight
+        castShadow
+        position={[5, 6, 5]}
+        intensity={0.8}
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+      />
+    </>
+  );
+}
+
+function Room({ w, h, d }: { w: number; h: number; d: number }) {
+  // 壁と天井（内向き）
+  const mat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: new THREE.Color(0.12, 0.12, 0.13),
+        roughness: 0.9,
+        metalness: 0.0,
+      }),
+    []
+  );
+  return (
+    <group>
+      {/* 左右・前後の壁 */}
+      <mesh receiveShadow position={[0, h / 2, -d / 2]} rotation={[0, 0, 0]}>
+        <planeGeometry args={[w, h]} />
+        <primitive object={mat} attach="material" />
+      </mesh>
+      <mesh
+        receiveShadow
+        position={[0, h / 2, d / 2]}
+        rotation={[0, Math.PI, 0]}
+      >
+        <planeGeometry args={[w, h]} />
+        <primitive object={mat} attach="material" />
+      </mesh>
+      <mesh
+        receiveShadow
+        position={[w / 2, h / 2, 0]}
+        rotation={[0, -Math.PI / 2, 0]}
+      >
+        <planeGeometry args={[d, h]} />
+        <primitive object={mat} attach="material" />
+      </mesh>
+      <mesh
+        receiveShadow
+        position={[-w / 2, h / 2, 0]}
+        rotation={[0, Math.PI / 2, 0]}
+      >
+        <planeGeometry args={[d, h]} />
+        <primitive object={mat} attach="material" />
+      </mesh>
+      {/* 天井 */}
+      <mesh receiveShadow position={[0, h, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[w, d]} />
+        <primitive object={mat} attach="material" />
+      </mesh>
+    </group>
+  );
+}
+
+function Floor({ w, d }: { w: number; d: number }) {
+  return (
+    <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <planeGeometry args={[w, d]} />
+      <MeshReflectorMaterial
+        mirror={0.2}
+        blur={[300, 50]}
+        resolution={1024}
+        mixBlur={2}
+        mixStrength={15}
+        roughness={0.6}
+        metalness={0.2}
+        color="#1a1a1c"
+      />
+    </mesh>
+  );
+}
+
+function Frames({
+  images,
+  roomSize,
+}: {
+  images: ImageItem[];
+  roomSize: { w: number; h: number; d: number };
+}) {
+  const gap = 2.6; // 額の間隔
+  const frameW = 2.2; // 額の幅
+  const frameH = 1.5; // 額の高さ
+  const eye = 2.0; // 中心の高さ
+
+  // 壁4面に均等配置（前→右→後→左 の順）
+  const perWall = Math.ceil(images.length / 4);
+  const walls = [
+    {
+      normal: new THREE.Vector3(0, 0, 1),
+      posZ: -roomSize.d / 2 + 0.01,
+      rotY: 0,
+    }, // 前壁（手前から見て奥側）
+    {
+      normal: new THREE.Vector3(-1, 0, 0),
+      posX: roomSize.w / 2 - 0.01,
+      rotY: -Math.PI / 2,
+    }, // 右壁
+    {
+      normal: new THREE.Vector3(0, 0, -1),
+      posZ: roomSize.d / 2 - 0.01,
+      rotY: Math.PI,
+    }, // 後壁
+    {
+      normal: new THREE.Vector3(1, 0, 0),
+      posX: -roomSize.w / 2 + 0.01,
+      rotY: Math.PI / 2,
+    }, // 左壁
+  ];
+
+  const items = images.map((img, i) => {
+    const wallIdx = Math.floor(i / perWall);
+    const onWallIdx = i % perWall;
+    const wall = walls[Math.min(wallIdx, walls.length - 1)];
+
+    const span = (perWall - 1) * gap;
+    const offset = onWallIdx * gap - span / 2;
+
+    let position: [number, number, number] = [0, eye, 0];
+    if ((wall as any).posZ !== undefined)
+      position = [offset, eye, (wall as any).posZ];
+    if ((wall as any).posX !== undefined)
+      position = [(wall as any).posX, eye, offset];
+
+    return {
+      ...img,
+      position,
+      rotation: [0, (wall as any).rotY, 0] as [number, number, number],
+      normal: (wall as any).normal,
+    };
+  });
+
+  return (
+    <group>
+      {items.map((it, idx) => (
+        <Frame
+          key={idx}
+          url={it.url}
+          title={it.title}
+          author={it.author}
+          position={it.position}
+          rotation={it.rotation}
+          normal={it.normal}
+          size={[frameW, frameH]}
+        />
+      ))}
+    </group>
+  );
+}
+
+type FrameProps = {
+  url: string;
+  title?: string;
+  author?: string;
+  position: [number, number, number];
+  rotation: [number, number, number];
+  normal: THREE.Vector3;
+  size?: [number, number];
+};
+
+function Frame({
+  url,
+  title,
+  author,
+  position,
+  rotation,
+  normal,
+  size = [2, 1.3],
+}: FrameProps) {
+  // useTexture の返り値はユニオンになりやすいので明示的に Texture として扱う
+  const tex = useTexture(url) as unknown as THREE.Texture;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  // @ts-ignore: three の型によりプロパティが非推奨/存在しない場合があるがランタイムでは使用
+  tex.anisotropy = 8;
+
+  // 写真のアスペクト比に基づいてフレームサイズとラベル位置を計算
+  const [dynamicSize, setDynamicSize] = useState([2.2, 1.5]);
+  const [labelOffset, setLabelOffset] = useState(new THREE.Vector3());
+  useEffect(() => {
+    if (tex.image) {
+      const img = tex.image as HTMLImageElement;
+      const aspect = img.width / img.height;
+      const maxSize = 2.2;
+      let frameW, frameH;
+      if (aspect > 1) {
+        // 横長写真
+        frameW = maxSize;
+        frameH = maxSize / aspect;
+      } else {
+        // 縦長写真
+        frameH = maxSize;
+        frameW = maxSize * aspect;
+      }
+      setDynamicSize([frameW, frameH]);
+
+      // ラベル位置の計算
+      let offset = new THREE.Vector3();
+      // ラベルを写真の下端の下に配置
+      offset = normal
+        .clone()
+        .applyEuler(new THREE.Euler(0, -rotation[1], 0))
+        .multiplyScalar(1.25);
+      offset.y = -frameH / 2 - 0.3;
+      setLabelOffset(offset);
+    }
+  }, [tex, normal, rotation]);
+
+  const [w, h] = dynamicSize;
+
+  const depth = 0.06;
+
+  const bgRef = useRef<THREE.Mesh>(null);
+
+  return (
+    <group position={position} rotation={rotation}>
+      {/* 額縁本体 */}
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[w + 0.14, h + 0.14, depth]} />
+        <meshStandardMaterial color="#111112" roughness={0.6} metalness={0.1} />
+      </mesh>
+      {/* 写真面（少し手前） */}
+      <mesh position={[0, 0, depth / 2 + 0.001]} castShadow>
+        <planeGeometry args={[w, h]} />
+        <meshStandardMaterial map={tex} roughness={0.9} metalness={0.0} />
+      </mesh>
+      {/* タイトルラベル背景 */}
+      {(title || author) && (
+        <mesh ref={bgRef} position={[labelOffset.x, labelOffset.y, depth]}>
+          <planeGeometry args={[1.5, 0.3]} />
+          <meshBasicMaterial color="#fff" />
+        </mesh>
+      )}
+      {/* タイトルラベル */}
+      {(title || author) && (
+        <Text
+          position={[labelOffset.x, labelOffset.y, depth / 2 + 0.05]}
+          fontSize={0.08}
+          color="#000"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.002}
+          outlineColor="#fff"
+          onSync={(troika) => {
+            if (bgRef.current && troika.geometry.boundingBox) {
+              const bbox = troika.geometry.boundingBox;
+              const width = bbox.max.x - bbox.min.x;
+              const height = bbox.max.y - bbox.min.y;
+              const padding = 0.08;
+              bgRef.current.scale.set(
+                (width + padding * 2) / 1.5,
+                (height + padding) / 0.3,
+                1
+              );
+            }
+          }}
+        >
+          {title ?? "Untitled"}
+          {author && `\n${author}`}
+        </Text>
+      )}
+    </group>
+  );
+}
+
+function PointerLookWalk({
+  roomSize,
+}: {
+  roomSize?: { w: number; h: number; d: number };
+}) {
+  // シンプルな WASD 歩行（カメラ直接操作）
+  const vel = useRef(new THREE.Vector3());
+  const dir = useRef(new THREE.Vector3());
+  const euler = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
+  // targetEuler を用意して、ドラッグ/ポインタロックでの入力をここに書き込み、
+  // 毎フレーム現在の euler をスムージングして追従させる
+  const targetEuler = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
+  // 実際の移動速度（スムージング付き）
+  const actualVel = useRef(new THREE.Vector3());
+  const prevTargetPitch = useRef<number>(targetEuler.current.x);
+  const prevCamPitch = useRef<number>(0);
+  const keys = useRef<{ [k: string]: boolean }>({});
+  const cam = useRef<THREE.PerspectiveCamera | null>(null);
+  const initialY = useRef<number | null>(null);
+
+  // キー入力イベントを登録（WASD で移動）。フォーカスやウィンドウが外れた時はクリアする。
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // prevent typing into inputs when desired? keep simple: always record WASD
+      if (
+        e.code === "KeyW" ||
+        e.code === "KeyA" ||
+        e.code === "KeyS" ||
+        e.code === "KeyD"
+      ) {
+        // デバッグ: キー入力が拾えているか確認
+        // (開発時のみのログ、不要なら後で削除可能)
+        keys.current[e.code] = true;
+        // prevent page scrolling when space/arrow used? not needed here
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (
+        e.code === "KeyW" ||
+        e.code === "KeyA" ||
+        e.code === "KeyS" ||
+        e.code === "KeyD"
+      ) {
+        keys.current[e.code] = false;
+      }
+    };
+    const onBlur = () => {
+      keys.current = {};
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
+  // マウント確認用ログ（コンポーネントが実際に描画されているか確認）
+  useEffect(() => {}, []);
+
+  // マウスドラッグでの視点回転（ポインタロックでない通常ドラッグ時）
+  useEffect(() => {
+    const canvas = document.querySelector("canvas");
+    if (!canvas) return;
+
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    const baseSensitivity = 0.0015;
+
+    const onDown = (e: MouseEvent) => {
+      // キャプチャ段階で先に受け取り、他ハンドラによる制御を防ぐ
+      try {
+        e.preventDefault?.();
+        // stopImmediatePropagation は同一要素の他のリスナも止める
+        e.stopImmediatePropagation?.();
+      } catch (err) {
+        // ignore
+      }
+      if (document.pointerLockElement) return;
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    };
+
+    const onMove = (e: MouseEvent) => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      const sensitivity = document.pointerLockElement
+        ? baseSensitivity * 2.2
+        : baseSensitivity;
+      // yaw と pitch を更新
+      targetEuler.current.y -= dx * sensitivity;
+      targetEuler.current.x += dy * sensitivity;
+      // 移動中のログは大量に出るためここでは出力しない。
+      // 必要なら閾値を設けて短時間に一度だけ出す実装に変更できます。
+    };
+
+    const onUp = () => {
+      dragging = false;
+    };
+
+    // capture=true で先にハンドリングする（OrbitControls より先に受け取る）
+    canvas.addEventListener("mousedown", onDown, { capture: true });
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+
+    return () => {
+      canvas.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  useFrame((state, dt) => {
+    cam.current = state.camera as THREE.PerspectiveCamera;
+    // OrbitControls が有効な場合は OrbitControls 側の回転を優先し、
+    // 我々の euler/targetEuler をカメラ回転に同期して上書きを防ぐ。
+    const orbitEnabled = false;
+    if (orbitEnabled) {
+      // Sync our targets to the camera so toggling between modes doesn't jump
+      targetEuler.current.x = cam.current.rotation.x;
+      targetEuler.current.y = cam.current.rotation.y;
+      targetEuler.current.z = cam.current.rotation.z;
+      euler.current.x = targetEuler.current.x;
+      euler.current.y = targetEuler.current.y;
+      euler.current.z = targetEuler.current.z;
+    } else {
+      // 毎フレーム euler を targetEuler に近づける（スムージング）
+      // targetEuler の pitch を適切な範囲にクランプ
+      targetEuler.current.x = Math.max(
+        -Math.PI / 4,
+        Math.min(Math.PI / 6, targetEuler.current.x)
+      );
+      const smooth = 0.18; // 反応の速さ（大きいほど即時）
+      function lerpAngle(a: number, b: number, t: number) {
+        let d = ((b - a + Math.PI) % (2 * Math.PI)) - Math.PI;
+        return a + d * t;
+      }
+      euler.current.x = lerpAngle(
+        euler.current.x,
+        targetEuler.current.x,
+        smooth
+      );
+      euler.current.y = lerpAngle(
+        euler.current.y,
+        targetEuler.current.y,
+        smooth
+      );
+      euler.current.z = lerpAngle(
+        euler.current.z,
+        targetEuler.current.z,
+        smooth
+      );
+      cam.current.rotation.set(
+        euler.current.x,
+        euler.current.y,
+        euler.current.z,
+        "YXZ"
+      );
+    }
+
+    // movement always active (no mode toggle required)
+
+    // 初回フレームでカメラの高さを記憶しておき、水平方向のみの移動にする
+    // 同時にカメラの現在の回転を targetEuler に同期しておく（回転の不整合を防ぐ）
+    if (initialY.current === null && cam.current) {
+      initialY.current = cam.current.position.y;
+      // カメラの初期回転を targetEuler にコピー
+      targetEuler.current.x = cam.current.rotation.x;
+      targetEuler.current.y = cam.current.rotation.y;
+      targetEuler.current.z = cam.current.rotation.z;
+      // euler も即座に合わせておく
+      euler.current.x = targetEuler.current.x;
+      euler.current.y = targetEuler.current.y;
+      euler.current.z = targetEuler.current.z;
+    }
+
+    // キー入力
+    const speed = 4.0;
+    vel.current.set(0, 0, 0);
+    // W は前進、S は後退（カメラの向きに沿って進む）
+    if (keys.current["KeyW"]) vel.current.z += 1;
+    if (keys.current["KeyS"]) vel.current.z -= 1;
+    if (keys.current["KeyA"]) vel.current.x -= 1;
+    if (keys.current["KeyD"]) vel.current.x += 1;
+
+    // カメラの向きに基づく前方ベクトルを取得（PointerLock でも Orbit でも共通）
+    cam.current.getWorldDirection(dir.current);
+    dir.current.y = 0; // 水平成分のみで移動させる
+    dir.current.normalize();
+    const right = new THREE.Vector3()
+      .crossVectors(dir.current, new THREE.Vector3(0, 1, 0))
+      .normalize();
+
+    // 入力 vel をスムーズ化して actualVel に近づける
+    // vel は -1..1 の入力値、actualVel は現在の滑らかな入力
+    actualVel.current.lerp(vel.current, 0.18);
+
+    const move = new THREE.Vector3();
+    // allow independent tuning of forward/back vs strafe responsiveness
+    const forwardWeight = 1.0;
+    const strafeWeight = 1.4; // 横移動の重み
+    move.addScaledVector(dir.current, actualVel.current.z * forwardWeight);
+    move.addScaledVector(right, actualVel.current.x * strafeWeight);
+    if (move.lengthSq() > 0.000001) {
+      // 変更: 正規化してから速度を掛けると、斜め移動やストレイフの感覚が
+      // 思った通りにならないため、正規化をやめて入力ベクトルの大きさを
+      // 保ったままスカラーを掛ける（A/D の横移動が自然に効くようになる）
+      move.multiplyScalar(
+        speed * dt * (0.9 + actualVel.current.length() * 0.1)
+      );
+    } else {
+      move.set(0, 0, 0);
+    }
+
+    // 位置更新（安全のため finite を確認）
+    if (
+      Number.isFinite(move.x) &&
+      Number.isFinite(move.y) &&
+      Number.isFinite(move.z)
+    ) {
+      cam.current.position.add(move);
+      // 変更: カメラ移動時に OrbitControls の target を移動させない。
+      // これによりカメラの立っている位置で左右を向ける（ファーストパーソン寄り）の
+      // 回転が可能になる。必要なら後で target を滑らかに移動する実装を追加する。
+    }
+
+    // カメラの高さを固定して水平方向のみ移動する
+    if (initialY.current !== null) {
+      // 床（y=0）より下に入らないように最小高さを保証する
+      const floorY = 0;
+      const minHeight = Math.max(initialY.current, floorY + 1.2);
+      // 天井より上にも出ないように最大高さを制限
+      const maxHeight = roomSize ? roomSize.h - 0.5 : initialY.current;
+      // 変更点: カメラの高さを厳密に固定（初期高さまたは min/max の範囲内）する。
+      // これにより前進・左右移動で高さがずれて下がってしまう問題を解消する。
+      const fixedY = Math.max(minHeight, Math.min(maxHeight, initialY.current));
+      cam.current.position.y = fixedY;
+    }
+
+    // 部屋の内側に収まるよう X/Z をクランプ
+    if (roomSize) {
+      const margin = 0.9; // カメラから壁までの最小距離
+      const halfW = roomSize.w / 2 - margin;
+      const halfD = roomSize.d / 2 - margin;
+      cam.current.position.x = Math.max(
+        -halfW,
+        Math.min(halfW, cam.current.position.x)
+      );
+      cam.current.position.z = Math.max(
+        -halfD,
+        Math.min(halfD, cam.current.position.z)
+      );
+    }
+
+    // A/D 押下でカメラが回転してしまっているか検出するデバッグ。
+    // 削除済み
+  });
+
+  return (
+    <group>
+      {/* PointerLockControls を削除、マウスドラッグで視線を動かす */}
+    </group>
+  );
+}
