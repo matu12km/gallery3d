@@ -7,6 +7,7 @@ import {
   Environment,
   Loader,
   MeshReflectorMaterial,
+  RoundedBox,
   Text,
   PointerLockControls,
   ContactShadows,
@@ -364,11 +365,16 @@ function Frame({
         <sphereGeometry args={[0.03]} />
         <meshBasicMaterial color="white" opacity={0.6} transparent />
       </mesh>
-      {/* 額縁本体 */}
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[w + 0.14, h + 0.14, depth]} />
+      {/* 額縁本体（RoundedBox で角を丸めて立体感を向上） */}
+      <RoundedBox
+        args={[w + 0.14, h + 0.14, depth]}
+        radius={0.03}
+        smoothness={6}
+        castShadow
+        receiveShadow
+      >
         <meshStandardMaterial color="#111112" roughness={0.6} metalness={0.1} />
-      </mesh>
+      </RoundedBox>
       {/* 写真面（少し手前） */}
       <mesh ref={photoRef} position={[0, 0, depth / 2 + 0.001]} castShadow>
         <planeGeometry args={[w, h]} />
