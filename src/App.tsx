@@ -9,6 +9,7 @@ import {
   MeshReflectorMaterial,
   Text,
   PointerLockControls,
+  ContactShadows,
 } from "@react-three/drei";
 import * as THREE from "three";
 
@@ -77,6 +78,15 @@ export default function PhotoGallery3D({
           <GalleryLighting />
           <Room {...roomSize} />
           <Frames images={images} roomSize={roomSize} />
+          {/* 接地の微細シャドウで額と床の接触を強調 */}
+          <ContactShadows
+            position={[0, 0, 0]}
+            opacity={0.6}
+            width={20}
+            height={20}
+            blur={2}
+            far={1.6}
+          />
           <Floor w={roomSize.w} d={roomSize.d} />
         </Suspense>
 
@@ -93,10 +103,10 @@ export default function PhotoGallery3D({
 function GalleryLighting() {
   return (
     <>
-      <ambientLight intensity={0.35} />
+      <ambientLight intensity={0.2} />
       {/* 天井ライトのラインを少しだけ */}
       <rectAreaLight
-        intensity={6}
+        intensity={4}
         width={6}
         height={0.1}
         position={[0, 3.8, 0]}
@@ -105,7 +115,7 @@ function GalleryLighting() {
       <directionalLight
         castShadow
         position={[5, 6, 5]}
-        intensity={0.8}
+        intensity={0.5}
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
       />
@@ -322,53 +332,130 @@ function Frame({
   const depth = 0.06;
 
   const bgRef = useRef<THREE.Mesh>(null);
+  const paperRef = useRef<THREE.Mesh>(null);
+  const photoRef = useRef<THREE.Mesh>(null);
+  const spotLightRef = useRef<THREE.SpotLight>(null);
+
+  useEffect(() => {
+    if (photoRef.current && spotLightRef.current) {
+      spotLightRef.current.target = photoRef.current;
+    }
+  }, []);
 
   return (
     <group position={position} rotation={rotation}>
+      {/* 各写真にスポットライトを追加（天井から照らす） - 調整済み */}
+      <spotLight
+        ref={spotLightRef}
+        position={[0, 2.2, 0.6]}
+        intensity={3.2}
+        angle={0.42}
+        penumbra={0.6}
+        distance={6}
+        decay={2}
+        castShadow
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
+        shadow-bias={-0.0005}
+        shadow-radius={4}
+      />
+      {/* 光源の位置を示す小さな球（デバッグ用、視認性を下げるため薄め） */}
+      <mesh position={[0, 2.2, 0.2]}>
+        <sphereGeometry args={[0.03]} />
+        <meshBasicMaterial color="white" opacity={0.6} transparent />
+      </mesh>
       {/* 額縁本体 */}
       <mesh castShadow receiveShadow>
         <boxGeometry args={[w + 0.14, h + 0.14, depth]} />
         <meshStandardMaterial color="#111112" roughness={0.6} metalness={0.1} />
       </mesh>
       {/* 写真面（少し手前） */}
-      <mesh position={[0, 0, depth / 2 + 0.001]} castShadow>
+      <mesh ref={photoRef} position={[0, 0, depth / 2 + 0.001]} castShadow>
         <planeGeometry args={[w, h]} />
         <meshStandardMaterial map={tex} roughness={0.9} metalness={0.0} />
       </mesh>
-      {/* タイトルラベル背景 */}
+      {/* タイトルラベル（プレートに厚みを持たせ、紙っぽい質感を追加） */}
       {(title || author) && (
-        <mesh ref={bgRef} position={[labelOffset.x, labelOffset.y, depth]}>
-          <planeGeometry args={[1.5, 0.3]} />
-          <meshBasicMaterial color="#fff" />
-        </mesh>
-      )}
-      {/* タイトルラベル */}
-      {(title || author) && (
-        <Text
-          position={[labelOffset.x, labelOffset.y, depth / 2 + 0.05]}
-          fontSize={0.08}
-          color="#000"
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.002}
-          outlineColor="#fff"
-          onSync={(troika) => {
-            if (bgRef.current && troika.geometry.boundingBox) {
-              const bbox = troika.geometry.boundingBox;
-              const width = bbox.max.x - bbox.min.x;
-              const height = bbox.max.y - bbox.min.y;
-              const padding = 0.08;
-              bgRef.current.scale.set(
-                (width + padding * 2) / 1.5,
-                (height + padding) / 0.3,
-                1
-              );
-            }
-          }}
-        >
-          {title ?? "Untitled"}
-          {author && `\n${author}`}
-        </Text>
+        <>
+          {/* 背景プレート（薄い箱で厚みを表現） */}
+          <group position={[labelOffset.x, labelOffset.y, depth + 0.01]}>
+            <mesh ref={bgRef} castShadow receiveShadow>
+              <boxGeometry args={[1.5, 0.3, 0.02]} />
+              {/* 色をわずかに薄め、roughness を微調整して塊感を減らす */}
+              <meshStandardMaterial
+                color="#f3f0ea"
+                roughness={0.72}
+                metalness={0.02}
+              />
+            </mesh>
+            {/* 紙面（ボードに貼られた紙のように少し前面に配置）。
+                幅は troika Text の実寸に合わせて onSync でスケールする */}
+            <mesh
+              ref={paperRef}
+              position={[0, 0, 0.013]}
+              castShadow
+              receiveShadow
+            >
+              <planeGeometry args={[1.28, 0.22]} />
+              <meshStandardMaterial
+                color="#fffdf8"
+                roughness={0.92}
+                metalness={0}
+              />
+            </mesh>
+          </group>
+
+          {/* troika Text を紙面の少し前に置く（読みやすさ優先） */}
+          <Text
+            position={[labelOffset.x, labelOffset.y, depth + 0.045]}
+            fontSize={0.08}
+            color="#111"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.002}
+            outlineColor="#fff"
+            // テキストの折り返し：最大幅を写真の幅に合わせる
+            maxWidth={w}
+            textAlign="center"
+            lineHeight={1.05}
+            onSync={(troika) => {
+              if (
+                bgRef.current &&
+                troika.geometry &&
+                troika.geometry.boundingBox
+              ) {
+                const bbox = troika.geometry.boundingBox;
+                const width = bbox.max.x - bbox.min.x;
+                const height = bbox.max.y - bbox.min.y;
+                const padding = 0.08;
+                // 背景プレートは boxGeometry なので scale の z は 1 のまま
+                bgRef.current.scale.set(
+                  (width + padding * 2) / 1.5,
+                  (height + padding) / 0.3,
+                  1
+                );
+                // 紙面（paperRef）はプレートと同じ実寸（幅・高さ）に合わせる
+                if (paperRef.current) {
+                  const basePaperW = 1.28;
+                  const basePaperH = 0.22;
+                  const plateWidth = width + padding * 2; // 実際のプレート幅
+                  const plateHeight = height + padding; // 実際のプレート高さ
+                  paperRef.current.scale.set(
+                    plateWidth / basePaperW,
+                    plateHeight / basePaperH,
+                    1
+                  );
+                  // 中心がずれることがあるため位置をリセット
+                  paperRef.current.position.x = 0;
+                  paperRef.current.position.y = 0;
+                  paperRef.current.position.z = 0.013;
+                }
+              }
+            }}
+          >
+            {title ?? "Untitled"}
+          </Text>
+        </>
       )}
     </group>
   );
