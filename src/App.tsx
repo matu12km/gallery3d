@@ -57,8 +57,8 @@ export default function PhotoGallery3D({
 
   return (
     <div
-      className="relative w-full h-[80vh] bg-black"
-      style={{ width: "100%", height: "80vh", background: "black" }}
+      className="relative w-full h-[100vh]"
+      style={{ width: "100%", height: "100vh" }}
     >
       <Canvas
         style={{ width: "100%", height: "100%" }}
@@ -79,6 +79,8 @@ export default function PhotoGallery3D({
           <GalleryLighting />
           <Room {...roomSize} />
           <Frames images={images} roomSize={roomSize} />
+          <Skirting w={roomSize.w} d={roomSize.d} />
+          <CeilingRail w={roomSize.w} d={roomSize.d} images={images} />
           {/* 接地の微細シャドウで額と床の接触を強調 */}
           <ContactShadows
             position={[0, 0, 0]}
@@ -129,9 +131,35 @@ function Room({ w, h, d }: { w: number; h: number; d: number }) {
   const mat = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
-        color: new THREE.Color(0.12, 0.12, 0.13),
-        roughness: 0.9,
+        // 壁を白っぽく変更。完全な真っ白だと眩しいためわずかに暖かみを残したオフホワイト。
+        color: new THREE.Color(0.96, 0.96, 0.95),
+        // 壁らしいマット感を維持しつつ、ややだけ艶を抑える
+        roughness: 0.88,
         metalness: 0.0,
+      }),
+    []
+  );
+  // 天井は壁よりわずかにトーンを落とした非常に淡いグレーにする
+  const ceilingMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        // 少しだけ明るめにして目で変化がわかりやすいようにする
+        color: new THREE.Color(0.93, 0.93, 0.94),
+        roughness: 0.88,
+        metalness: 0.0,
+        // カメラが部屋内側にあるため裏面が見えることがある。
+        // 念のため両面描画にして色が確実に反映されるようにする。
+        side: THREE.DoubleSide,
+      }),
+    []
+  );
+  // 照明や環境で色味が変わってしまう問題が残る場合に備え、
+  // 確実に表示させるための Basic マテリアルも用意しておく
+  const ceilingBasicMat = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(0.93, 0.93, 0.94),
+        side: THREE.DoubleSide,
       }),
     []
   );
@@ -169,27 +197,194 @@ function Room({ w, h, d }: { w: number; h: number; d: number }) {
       {/* 天井 */}
       <mesh receiveShadow position={[0, h, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[w, d]} />
-        <primitive object={mat} attach="material" />
+        {/* 照明の影響で色が変わる場合に備え、BasicMaterial を使用して
+            常に意図した色が出るようにする（見た目の安定化） */}
+        <primitive object={ceilingBasicMat} attach="material" />
       </mesh>
     </group>
   );
 }
 
 function Floor({ w, d }: { w: number; d: number }) {
+  // 軽いパターンをキャンバスで作成して床に貼る
+  const canvasTex = useMemo(() => {
+    const c = document.createElement("canvas");
+    c.width = 256;
+    c.height = 256;
+    const ctx = c.getContext("2d")!;
+    // ベース色
+    ctx.fillStyle = "#141417";
+    ctx.fillRect(0, 0, c.width, c.height);
+    // サブのノイズライン（目立たない）
+    ctx.strokeStyle = "rgba(255,255,255,0.02)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 14; i++) {
+      const y = (i / 14) * c.height + (Math.random() - 0.5) * 4;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(c.width, y + (Math.random() - 0.5) * 6);
+      ctx.stroke();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(w / 2, d / 2);
+    return tex;
+  }, [w, d]);
+
   return (
     <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
       <planeGeometry args={[w, d]} />
       <MeshReflectorMaterial
-        mirror={0.2}
-        blur={[300, 50]}
+        map={canvasTex}
+        map-anisotropy={4}
+        mirror={0.18}
+        blur={[400, 80]}
         resolution={1024}
-        mixBlur={2}
-        mixStrength={15}
-        roughness={0.6}
-        metalness={0.2}
-        color="#1a1a1c"
+        mixBlur={4}
+        mixStrength={8}
+        roughness={0.55}
+        metalness={0.06}
+        color="#17171a"
       />
     </mesh>
+  );
+}
+
+// 壁の下部に取り付ける巾木（skirting board）
+function Skirting({ w, d }: { w: number; d: number }) {
+  const height = 0.08;
+  const thickness = 0.08;
+  return (
+    <group>
+      {/* 前 */}
+      <mesh position={[0, height / 2, -d / 2 + thickness / 2]} receiveShadow>
+        <boxGeometry args={[w, height, thickness]} />
+        <meshStandardMaterial
+          color="#101015"
+          roughness={0.85}
+          metalness={0.02}
+        />
+      </mesh>
+      {/* 後 */}
+      <mesh position={[0, height / 2, d / 2 - thickness / 2]} receiveShadow>
+        <boxGeometry args={[w, height, thickness]} />
+        <meshStandardMaterial
+          color="#101015"
+          roughness={0.85}
+          metalness={0.02}
+        />
+      </mesh>
+      {/* 右 */}
+      <mesh position={[w / 2 - thickness / 2, height / 2, 0]} receiveShadow>
+        <boxGeometry args={[thickness, height, d]} />
+        <meshStandardMaterial
+          color="#101015"
+          roughness={0.85}
+          metalness={0.02}
+        />
+      </mesh>
+      {/* 左 */}
+      <mesh position={[-w / 2 + thickness / 2, height / 2, 0]} receiveShadow>
+        <boxGeometry args={[thickness, height, d]} />
+        <meshStandardMaterial
+          color="#101015"
+          roughness={0.85}
+          metalness={0.02}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+// 天井のスポットレール（前壁寄せ、スポットライト配置）
+function CeilingRail({
+  w,
+  d,
+  images,
+}: {
+  w: number;
+  d: number;
+  images?: ImageItem[];
+}) {
+  // レールを前壁側に寄せる（前壁 = -d/2）
+  const railY = 3.8;
+  const railThickness = 0.06;
+  const railZ = -d / 2 + 0.45; // 前壁寄せ
+  const railLength = w * 0.6;
+
+  const gap = 2.6; // Frames と合わせる
+  const eye = 2.0;
+
+  const imgs = images ?? [];
+  const perWall = Math.max(1, Math.ceil(imgs.length / 4));
+  const frontCount = perWall; // front wall items count
+  const span = (frontCount - 1) * gap;
+
+  const spotRefs = useRef<Array<THREE.SpotLight | null>>([]);
+  const targetRefs = useRef<Array<THREE.Object3D | null>>([]);
+
+  useEffect(() => {
+    for (let i = 0; i < frontCount; i++) {
+      const spot = spotRefs.current[i];
+      const tgt = targetRefs.current[i];
+      if (spot && tgt) spot.target = tgt;
+    }
+  }, [frontCount]);
+
+  return (
+    <group position={[0, railY, railZ]}>
+      {/* レール本体 */}
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[railLength, railThickness, 0.12]} />
+        <meshStandardMaterial
+          color="#0c0c0f"
+          roughness={0.35}
+          metalness={0.7}
+        />
+      </mesh>
+
+      {Array.from({ length: frontCount }).map((_, i) => {
+        const offset = i * gap - span / 2; // same offset used in Frames
+        // target z in world coords is near front wall
+        const targetWorldZ = -d / 2 + 0.01;
+        const targetRelZ = targetWorldZ - railZ; // group-relative z
+
+        return (
+          <group key={i}>
+            {/* ハウジング（見た目） */}
+            <mesh position={[offset, 0, 0]}>
+              <cylinderGeometry args={[0.05, 0.05, 0.18, 8]} />
+              <meshStandardMaterial
+                emissive={new THREE.Color(0x222222)}
+                emissiveIntensity={0.6}
+                color="#0b0b0b"
+              />
+            </mesh>
+
+            {/* スポットライト（レールから少し下げて配置） */}
+            <spotLight
+              ref={(el) => (spotRefs.current[i] = el)}
+              position={[offset, -0.05, 0]}
+              intensity={3.0}
+              angle={0.45}
+              penumbra={0.6}
+              distance={6}
+              decay={2}
+              castShadow
+              shadow-mapSize-width={1024}
+              shadow-mapSize-height={1024}
+              shadow-bias={-0.0005}
+            />
+
+            {/* ターゲット（前壁の写真の高さに置く） */}
+            <object3D
+              ref={(el) => (targetRefs.current[i] = el)}
+              position={[offset, eye - 0.05, targetRelZ]}
+            />
+          </group>
+        );
+      })}
+    </group>
   );
 }
 
