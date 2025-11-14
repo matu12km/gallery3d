@@ -47,7 +47,11 @@ export default function PhotoGallery3D({
       title: "遠ざかる",
       author: "you",
     },
-    { url: import.meta.env.BASE_URL + "images/photo5.jpg", title: "沈む心", author: "you" },
+    {
+      url: import.meta.env.BASE_URL + "images/photo5.jpg",
+      title: "沈む心",
+      author: "you",
+    },
   ],
   roomSize = { w: 24, h: 4, d: 16 },
 }: Props) {
