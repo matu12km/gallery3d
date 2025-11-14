@@ -28,26 +28,26 @@ interface Props {
 export default function PhotoGallery3D({
   images = [
     {
-      url: "/images/photo1.jpg",
+      url: import.meta.env.BASE_URL + "images/photo1.jpg",
       title: "静かな街角",
       author: "you",
     },
     {
-      url: "/images/photo2.jpg",
+      url: import.meta.env.BASE_URL + "images/photo2.jpg",
       title: "影を歩く",
       author: "you",
     },
     {
-      url: "/images/photo3.jpg",
+      url: import.meta.env.BASE_URL + "images/photo3.jpg",
       title: "色のない世界",
       author: "you",
     },
     {
-      url: "/images/photo4.jpg",
+      url: import.meta.env.BASE_URL + "images/photo4.jpg",
       title: "遠ざかる",
       author: "you",
     },
-    { url: "/images/photo5.jpg", title: "沈む心", author: "you" },
+    { url: import.meta.env.BASE_URL + "images/photo5.jpg", title: "沈む心", author: "you" },
   ],
   roomSize = { w: 24, h: 4, d: 16 },
 }: Props) {
